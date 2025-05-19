@@ -1,0 +1,404 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Upload, FileText, AlertCircle, CheckCircle, Code, Lightbulb } from 'lucide-react';
+
+const CodeAnalyzer = () => {
+  const [code, setCode] = useState('');
+  const [language, setLanguage] = useState('javascript');
+  const [errors, setErrors] = useState([]);
+  const [fileName, setFileName] = useState('');
+  const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  const languages = [
+    { value: 'javascript', label: 'JavaScript', extensions: ['.js', '.jsx'] },
+    { value: 'python', label: 'Python', extensions: ['.py'] },
+    { value: 'java', label: 'Java', extensions: ['.java'] },
+    { value: 'cpp', label: 'C++', extensions: ['.cpp', '.hpp', '.cc'] },
+    { value: 'c', label: 'C', extensions: ['.c', '.h'] },
+    { value: 'html', label: 'HTML', extensions: ['.html', '.htm'] },
+    { value: 'css', label: 'CSS', extensions: ['.css'] },
+    { value: 'json', label: 'JSON', extensions: ['.json'] },
+    { value: 'xml', label: 'XML', extensions: ['.xml'] },
+    { value: 'sql', label: 'SQL', extensions: ['.sql'] }
+  ];
+
+  const errorPatterns = {
+    javascript: [
+      { pattern: /console\.log\(/g, type: 'warning', message: 'console.log detected', suggestion: 'Remove console.log before production' },
+      { pattern: /var\s+\w+/g, type: 'warning', message: 'var declaration found', suggestion: 'Use const or let instead of var' },
+      { pattern: /==\s*[^=]/g, type: 'warning', message: 'Loose equality operator', suggestion: 'Use strict equality (===) instead' },
+      { pattern: /function\s*\(/g, type: 'info', message: 'Function declaration', suggestion: 'Consider using arrow functions for consistency' },
+      { pattern: /;\s*;/g, type: 'error', message: 'Double semicolon', suggestion: 'Remove extra semicolon' },
+      { pattern: /\{\s*\n\s*\}/g, type: 'warning', message: 'Empty code block', suggestion: 'Add implementation or remove empty block' }
+    ],
+    python: [
+      { pattern: /print\(/g, type: 'warning', message: 'print statement detected', suggestion: 'Remove print statements before production' },
+      { pattern: /except:/g, type: 'warning', message: 'Bare except clause', suggestion: 'Specify exception type: except Exception:' },
+      { pattern: /lambda.*:/g, type: 'info', message: 'Lambda function found', suggestion: 'Consider using regular function for better readability' },
+      { pattern: /import \*/g, type: 'warning', message: 'Star import detected', suggestion: 'Import specific modules instead of using *' },
+      { pattern: /\t/g, type: 'error', message: 'Tab character found', suggestion: 'Use spaces for indentation (PEP 8)' }
+    ],
+    java: [
+      { pattern: /System\.out\.print/g, type: 'warning', message: 'System.out.print detected', suggestion: 'Use logger instead of System.out.print' },
+      { pattern: /public\s+static\s+void\s+main/g, type: 'info', message: 'Main method found', suggestion: 'Entry point detected' },
+      { pattern: /\w+\s*=\s*null;/g, type: 'warning', message: 'Null assignment', suggestion: 'Consider using Optional or checking for null' },
+      { pattern: /catch\s*\(\s*Exception/g, type: 'warning', message: 'Generic exception catch', suggestion: 'Catch specific exceptions when possible' }
+    ],
+    cpp: [
+      { pattern: /#include\s*<iostream>/g, type: 'info', message: 'iostream included', suggestion: 'Standard IO operations available' },
+      { pattern: /using\s+namespace\s+std;/g, type: 'warning', message: 'using namespace std', suggestion: 'Consider using specific std:: prefixes' },
+      { pattern: /malloc|free/g, type: 'warning', message: 'C-style memory management', suggestion: 'Use new/delete or smart pointers in C++' },
+      { pattern: /goto\s+\w+/g, type: 'error', message: 'goto statement', suggestion: 'Avoid goto, use structured control flow' }
+    ],
+    html: [
+      { pattern: /<(?!\/?\w+[^>]*>)/g, type: 'error', message: 'Malformed tag', suggestion: 'Check tag syntax and closing brackets' },
+      { pattern: /<img(?![^>]*alt=)/g, type: 'warning', message: 'Image without alt attribute', suggestion: 'Add alt attribute for accessibility' },
+      { pattern: /<[^/>]*[^>/]>(?!.*<\/)/g, type: 'warning', message: 'Unclosed tag detected', suggestion: 'Ensure all tags are properly closed' }
+    ],
+    css: [
+      { pattern: /!important/g, type: 'warning', message: '!important detected', suggestion: 'Avoid !important, use more specific selectors' },
+      { pattern: /font-size:\s*\d+px/g, type: 'warning', message: 'Pixel units for font-size', suggestion: 'Consider using rem or em for better scalability' },
+      { pattern: /color:\s*red|blue|green(?![a-z])/g, type: 'info', message: 'Basic color name', suggestion: 'Consider using hex codes or CSS variables' }
+    ]
+  };
+
+  const analyzeCode = (codeText, lang) => {
+    const patterns = errorPatterns[lang] || [];
+    const foundErrors = [];
+    
+    patterns.forEach(({ pattern, type, message, suggestion }) => {
+      let match;
+      const regex = new RegExp(pattern.source, pattern.flags);
+      
+      while ((match = regex.exec(codeText)) !== null) {
+        const lines = codeText.substring(0, match.index).split('\n');
+        const lineNumber = lines.length;
+        const columnNumber = lines[lines.length - 1].length + 1;
+        
+        foundErrors.push({
+          line: lineNumber,
+          column: columnNumber,
+          type,
+          message,
+          suggestion,
+          code: match[0]
+        });
+      }
+    });
+
+    // Basic syntax checks
+    if (lang === 'javascript') {
+      const openBraces = (codeText.match(/\{/g) || []).length;
+      const closeBraces = (codeText.match(/\}/g) || []).length;
+      if (openBraces !== closeBraces) {
+        foundErrors.push({
+          line: -1,
+          column: -1,
+          type: 'error',
+          message: 'Mismatched braces',
+          suggestion: `Found ${openBraces} opening braces and ${closeBraces} closing braces`,
+          code: '{}'
+        });
+      }
+    }
+
+    return foundErrors.sort((a, b) => {
+      if (a.line === b.line) return a.column - b.column;
+      return a.line - b.line;
+    });
+  };
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    
+    // Detect language based on file extension
+    const extension = '.' + file.name.split('.').pop().toLowerCase();
+    const detectedLang = languages.find(lang => 
+      lang.extensions.includes(extension)
+    );
+    if (detectedLang) {
+      setLanguage(detectedLang.value);
+    }
+
+    const text = await file.text();
+    setCode(text);
+  };
+
+  const handleCodeChange = (e) => {
+    setCode(e.target.value);
+  };
+
+  useEffect(() => {
+    if (code) {
+      const foundErrors = analyzeCode(code, language);
+      setErrors(foundErrors);
+    } else {
+      setErrors([]);
+    }
+  }, [code, language]);
+
+  const getErrorIcon = (type) => {
+    switch (type) {
+      case 'error': return <AlertCircle size={16} style={{color: '#dc3545'}} />;
+      case 'warning': return <AlertCircle size={16} style={{color: '#ffc107'}} />;
+      case 'info': return <CheckCircle size={16} style={{color: '#0d6efd'}} />;
+      default: return <AlertCircle size={16} style={{color: '#6c757d'}} />;
+    }
+  };
+
+  const getErrorClass = (type) => {
+    switch (type) {
+      case 'error': return 'alert alert-danger';
+      case 'warning': return 'alert alert-warning';
+      case 'info': return 'alert alert-info';
+      default: return 'alert alert-secondary';
+    }
+  };
+
+  const highlightErrors = (codeText) => {
+    if (!errors.length) return codeText;
+    
+    let highlightedCode = codeText;
+    const lines = codeText.split('\n');
+    
+    errors.forEach(error => {
+      if (error.line > 0 && error.line <= lines.length) {
+        const lineIndex = error.line - 1;
+        const line = lines[lineIndex];
+        
+        if (error.code && line.includes(error.code)) {
+          const highlightedLine = line.replace(
+            error.code,
+            `<mark style="background-color: #ffdddd; color: #721c24;">${error.code}</mark>`
+          );
+          lines[lineIndex] = highlightedLine;
+        }
+      }
+    });
+    
+    return lines.join('\n');
+  };
+
+  return (
+    <>
+      {/* Bootstrap CSS */}
+      <link 
+        href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" 
+        rel="stylesheet" 
+      />
+      
+      <div className="container-fluid bg-light" style={{minHeight: '100vh', padding: '2rem'}}>
+        <div className="container">
+          <header className="text-center mb-5">
+            <h1 className="display-4 fw-bold text-dark mb-3">Code Error Analyzer</h1>
+            <p className="lead text-muted">Upload a file or paste your code to analyze for errors and get suggestions</p>
+          </header>
+
+          <div className="row">
+            {/* Code Input Section */}
+            <div className="col-lg-6 mb-4">
+              <div className="card h-100">
+                <div className="card-body">
+                  <h2 className="card-title h4 mb-4">
+                    <Code size={20} className="me-2" style={{color: '#0d6efd'}} />
+                    Code Input
+                  </h2>
+                  
+                  {/* Language Selection */}
+                  <div className="mb-3">
+                    <label className="form-label fw-semibold">Programming Language</label>
+                    <select
+                      className="form-select"
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                    >
+                      {languages.map(lang => (
+                        <option key={lang.value} value={lang.value}>
+                          {lang.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* File Upload */}
+                  <div className="mb-3">
+                    <label className="form-label fw-semibold">Upload File</label>
+                    <div className="d-flex align-items-center gap-3">
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleFileUpload}
+                        className="d-none"
+                      />
+                      <button
+                        className="btn btn-outline-secondary"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Upload size={16} className="me-2" />
+                        Choose File
+                      </button>
+                      {fileName && (
+                        <span className="text-muted small">
+                          <FileText size={14} className="me-1" />
+                          {fileName}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Code Editor */}
+                  <div className="mb-3">
+                    <label className="form-label fw-semibold">Or paste your code directly</label>
+                    <textarea
+                      ref={textareaRef}
+                      value={code}
+                      onChange={handleCodeChange}
+                      placeholder={`Paste your ${language} code here...`}
+                      className="form-control"
+                      style={{
+                        height: '300px',
+                        fontFamily: 'monospace',
+                        fontSize: '14px',
+                        resize: 'none'
+                      }}
+                    />
+                  </div>
+
+                  {/* Code Preview with Highlighting */}
+                  {code && (
+                    <div>
+                      <h5 className="fw-semibold mb-2">Code with Error Highlighting</h5>
+                      <div 
+                        className="border rounded p-3 bg-light overflow-auto"
+                        style={{
+                          fontFamily: 'monospace',
+                          fontSize: '13px',
+                          maxHeight: '200px',
+                          whiteSpace: 'pre-wrap'
+                        }}
+                        dangerouslySetInnerHTML={{ __html: highlightErrors(code).replace(/\n/g, '<br>') }}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Error Analysis Section */}
+            <div className="col-lg-6 mb-4">
+              <div className="card h-100">
+                <div className="card-body">
+                  <h2 className="card-title h4 mb-4">
+                    <AlertCircle size={20} className="me-2" style={{color: '#dc3545'}} />
+                    Error Analysis
+                    {errors.length > 0 && (
+                      <span className="badge bg-danger ms-2">{errors.length}</span>
+                    )}
+                  </h2>
+
+                  {errors.length === 0 ? (
+                    <div className="text-center py-5">
+                      {code ? (
+                        <div>
+                          <CheckCircle size={64} style={{color: '#198754'}} className="mb-3" />
+                          <h4 className="text-success">No errors detected!</h4>
+                          <p className="text-muted">Your code looks good.</p>
+                        </div>
+                      ) : (
+                        <div>
+                          <Code size={64} className="text-muted mb-3" />
+                          <p className="text-muted">Upload a file or paste some code to get started</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{maxHeight: '400px', overflowY: 'auto'}}>
+                      {errors.map((error, index) => (
+                        <div key={index} className={getErrorClass(error.type)} role="alert">
+                          <div className="d-flex align-items-start">
+                            <div className="me-3 mt-1">
+                              {getErrorIcon(error.type)}
+                            </div>
+                            <div className="flex-grow-1">
+                              <div className="d-flex align-items-center mb-1">
+                                <span className="fw-semibold me-2">{error.message}</span>
+                                {error.line > 0 && (
+                                  <span className="badge bg-secondary small">
+                                    Line {error.line}:{error.column}
+                                  </span>
+                                )}
+                              </div>
+                              {error.code && (
+                                <div className="small font-monospace bg-white border rounded p-2 mb-2">
+                                  {error.code}
+                                </div>
+                              )}
+                              <div className="d-flex align-items-start small">
+                                <Lightbulb size={16} style={{color: '#ffc107'}} className="me-2 mt-1 flex-shrink-0" />
+                                <span className="text-muted">{error.suggestion}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Summary */}
+          {code && (
+            <div className="row mt-4">
+              <div className="col-12">
+                <div className="card">
+                  <div className="card-body">
+                    <h3 className="card-title h5 mb-3">Analysis Summary</h3>
+                    <div className="row text-center">
+                      <div className="col-md-3 mb-3">
+                        <div className="p-3 bg-light rounded">
+                          <div className="h3 fw-bold text-dark">{code.split('\n').length}</div>
+                          <div className="small text-muted">Lines of Code</div>
+                        </div>
+                      </div>
+                      <div className="col-md-3 mb-3">
+                        <div className="p-3 rounded" style={{backgroundColor: '#f8d7da'}}>
+                          <div className="h3 fw-bold text-danger">
+                            {errors.filter(e => e.type === 'error').length}
+                          </div>
+                          <div className="small text-muted">Errors</div>
+                        </div>
+                      </div>
+                      <div className="col-md-3 mb-3">
+                        <div className="p-3 rounded" style={{backgroundColor: '#fff3cd'}}>
+                          <div className="h3 fw-bold text-warning">
+                            {errors.filter(e => e.type === 'warning').length}
+                          </div>
+                          <div className="small text-muted">Warnings</div>
+                        </div>
+                      </div>
+                      <div className="col-md-3 mb-3">
+                        <div className="p-3 rounded" style={{backgroundColor: '#cff4fc'}}>
+                          <div className="h3 fw-bold text-info">
+                            {errors.filter(e => e.type === 'info').length}
+                          </div>
+                          <div className="small text-muted">Info</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default CodeAnalyzer;
